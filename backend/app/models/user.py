@@ -5,10 +5,14 @@ Stores user accounts for room ownership and authentication
 from sqlalchemy import String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 import uuid
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.room import Room
+    from app.models.permission import RoomPermission
 
 
 class User(Base):
@@ -56,12 +60,21 @@ class User(Base):
         nullable=True
     )
     
-    # Relationships - will be used when Room model is updated
-    # rooms: Mapped[List["Room"]] = relationship(
-    #     "Room",
-    #     back_populates="creator",
-    #     cascade="all, delete-orphan"
-    # )
+    # Relationships
+    created_rooms: Mapped[List["Room"]] = relationship(
+        "Room",
+        back_populates="creator",
+        foreign_keys="Room.creator_id",
+        lazy="selectin"
+    )
+    
+    permissions: Mapped[List["RoomPermission"]] = relationship(
+        "RoomPermission",
+        back_populates="user",
+        foreign_keys="RoomPermission.user_id",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
     
     def __repr__(self) -> str:
         return f"<User(username={self.username}, email={self.email})>"

@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import Optional, Dict, List
 
+from app.models.permission import PermissionLevel
+
 
 class RoomCreate(BaseModel):
     """Schema for creating a new room"""
@@ -46,3 +48,10 @@ class RoomListResponse(BaseModel):
     """Schema for listing multiple rooms"""
     rooms: List[RoomResponse]
     total: int
+
+
+class RoomWithPermission(RoomResponse):
+    """Schema for room response with user's permission level"""
+    user_permission: Optional[PermissionLevel] = None
+    is_owner: bool = False
+

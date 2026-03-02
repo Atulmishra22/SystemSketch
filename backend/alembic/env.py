@@ -23,6 +23,7 @@ from app.core.database import Base
 # Import all models here to ensure they're registered with Base.metadata
 from app.models.room import Room
 from app.models.user import User
+from app.models.permission import RoomPermission
 
 # this is the Alembic Config object
 config = context.config

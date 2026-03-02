@@ -5,13 +5,14 @@ Stores room metadata and canvas state
 from sqlalchemy import String, Boolean, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, List
 import uuid
 
 from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.user import User
+    from app.models.permission import RoomPermission
 
 
 class Room(Base):
@@ -73,12 +74,21 @@ class Room(Base):
         nullable=False
     )
     
-    # Relationship to creator (user who owns the room)
-    # creator: Mapped[Optional["User"]] = relationship(
-    #     "User",
-    #     back_populates="rooms",
-    #     lazy="selectin"
-    # )
+    # Relationships
+    creator: Mapped[Optional["User"]] = relationship(
+        "User",
+        back_populates="created_rooms",
+        foreign_keys=[creator_id],
+        lazy="selectin"
+    )
+    
+    permissions: Mapped[List["RoomPermission"]] = relationship(
+        "RoomPermission",
+        back_populates="room",
+        foreign_keys="RoomPermission.room_id",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
     
     def __repr__(self) -> str:
         return f"<Room(id={self.id}, name={self.name}, is_saved={self.is_saved})>"
