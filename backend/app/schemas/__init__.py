@@ -14,6 +14,14 @@ from app.schemas.shape import (
     Shape,
     ShapesArray
 )
+from app.schemas.user import (
+    UserCreate,
+    UserLogin,
+    UserResponse,
+    UserUpdate,
+    Token,
+    TokenData
+)
 from app.schemas.websocket import (
     CursorPosition,
     DrawShape,
@@ -42,6 +50,13 @@ __all__ = [
     "Text",
     "Shape",
     "ShapesArray",
+    # User schemas
+    "UserCreate",
+    "UserLogin",
+    "UserResponse",
+    "UserUpdate",
+    "Token",
+    "TokenData",
     # WebSocket schemas
     "CursorPosition",
     "DrawShape",

@@ -8,6 +8,9 @@ import json
 
 from app.core.websocket_manager import connection_manager
 from app.core.state_manager import room_state_manager
+from app.core.database import AsyncSessionLocal
+from app.models.user import User
+from app.services.auth_service import decode_access_token
 from app.schemas.websocket import (
     UserJoined,
     UserLeft,
@@ -24,23 +27,41 @@ async def websocket_endpoint(
     websocket: WebSocket,
     room_id: str,
     username: Optional[str] = Query(default=None),
-    token: Optional[str] = Query(default=None)  # Future: JWT auth
+    token: Optional[str] = Query(default=None)
 ):
     """
     WebSocket endpoint for real-time room collaboration
     
+    Authentication:
+    - Optional JWT token via query parameter
+    - Falls back to anonymous username if no token provided
+    
     Flow:
-    1. Accept connection and assign user ID/color
-    2. Send current room state to new user
-    3. Broadcast user joined to others
-    4. Handle incoming messages (draw, cursor, clear, undo, redo)
-    5. Broadcast updates to all room participants
-    6. Handle disconnection gracefully
+    1. Validate optional JWT token and get user info
+    2. Accept connection and assign user ID/color
+    3. Send current room state to new user
+    4. Broadcast user joined to others
+    5. Handle incoming messages (draw, cursor, clear, undo, redo)
+    6. Broadcast updates to all room participants
+    7. Handle disconnection gracefully
     """
     
+    # Try to authenticate with JWT token
+    authenticated_username = None
+    if token:
+        token_data = decode_access_token(token)
+        if token_data:
+            # Fetch user from database to get actual username
+            async with AsyncSessionLocal() as session:
+                user = await session.get(User, token_data.user_id)
+                if user:
+                    authenticated_username = user.username
+    
+    # Use authenticated username, or provided username, or generate anonymous
+    final_username = authenticated_username or username or None
+    
     # Accept connection and get user info
-    user_id, color = await connection_manager.connect(room_id, websocket, username)
-    username = username or f"User-{user_id}"
+    user_id, color = await connection_manager.connect(room_id, websocket, final_username)
     
     try:
         # Send current room state to newly connected user

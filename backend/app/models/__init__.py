@@ -1,4 +1,5 @@
 # Database Models
 from app.models.room import Room
+from app.models.user import User
 
-__all__ = ["Room"]
+__all__ = ["Room", "User"]

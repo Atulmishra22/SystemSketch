@@ -22,7 +22,7 @@ from app.core.database import Base
 
 # Import all models here to ensure they're registered with Base.metadata
 from app.models.room import Room
-# from app.models.user import User  # Phase 2
+from app.models.user import User
 
 # this is the Alembic Config object
 config = context.config

@@ -5,12 +5,14 @@ Handles room creation, retrieval, and persistence
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
+from typing import List, Optional
 
 from app.core.database import get_async_session
 from app.models.room import Room
+from app.models.user import User
 from app.schemas.room import RoomCreate, RoomResponse, RoomState, RoomSaveRequest
 from app.core.state_manager import room_state_manager
+from app.api.dependencies import get_current_user_optional, get_current_user
 
 
 router = APIRouter()
@@ -19,17 +21,23 @@ router = APIRouter()
 @router.post("/rooms", response_model=RoomResponse, status_code=status.HTTP_201_CREATED)
 async def create_room(
     room_data: RoomCreate,
-    session: AsyncSession = Depends(get_async_session)
+    session: AsyncSession = Depends(get_async_session),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Create a new collaborative room
+    
+    - If authenticated: Room is owned by the user
+    - If anonymous: Room has no owner (creator_id is NULL)
+    
     Returns room ID and metadata
     """
     # Create new room in database
     new_room = Room(
         name=room_data.name,
         is_saved=False,
-        canvas_state={"shapes": []}
+        canvas_state={"shapes": []},
+        creator_id=current_user.id if current_user else None
     )
     
     session.add(new_room)
@@ -151,10 +159,35 @@ async def list_rooms(
 ):
     """
     List all rooms (most recent first)
-    Future: Will filter by user ownership
+    Returns public rooms and anonymous rooms
     """
     result = await session.execute(
         select(Room)
+        .order_by(Room.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rooms = result.scalars().all()
+    
+    return rooms
+
+
+@router.get("/users/me/rooms", response_model=List[RoomResponse])
+async def list_my_rooms(
+    limit: int = 50,
+    offset: int = 0,
+    session: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    List all rooms owned by the current authenticated user
+    
+    - Requires authentication
+    - Returns rooms created by the user
+    """
+    result = await session.execute(
+        select(Room)
+        .where(Room.creator_id == current_user.id)
         .order_by(Room.created_at.desc())
         .limit(limit)
         .offset(offset)

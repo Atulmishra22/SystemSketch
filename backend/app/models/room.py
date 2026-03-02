@@ -2,13 +2,16 @@
 Room Model - SQLAlchemy 2.0 with Async Support
 Stores room metadata and canvas state
 """
-from sqlalchemy import String, Boolean, DateTime, JSON
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String, Boolean, DateTime, JSON, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import uuid
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class Room(Base):
@@ -56,19 +59,26 @@ class Room(Base):
         index=True
     )
     
-    # Future: creator_id foreign key will be added in Phase 2
+    # Room ownership - Foreign key to User (nullable for anonymous rooms)
     creator_id: Mapped[Optional[str]] = mapped_column(
-        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True
     )
     
-    # Future: permission level for access control (Phase 3)
+    # Permission level for access control (Phase 3)
     permission_level: Mapped[str] = mapped_column(
         String(20),
         default="public",
         nullable=False
     )
+    
+    # Relationship to creator (user who owns the room)
+    # creator: Mapped[Optional["User"]] = relationship(
+    #     "User",
+    #     back_populates="rooms",
+    #     lazy="selectin"
+    # )
     
     def __repr__(self) -> str:
         return f"<Room(id={self.id}, name={self.name}, is_saved={self.is_saved})>"

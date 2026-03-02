@@ -62,7 +62,7 @@ async def health_check():
 
 
 # Include routers
-from app.api.routes import rooms, websocket
+from app.api.routes import rooms, websocket, auth
 app.include_router(rooms.router, prefix="/api", tags=["rooms"])
 app.include_router(websocket.router, tags=["websocket"])
-# app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])  # Phase 2
+app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
