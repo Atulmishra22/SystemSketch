@@ -15,6 +15,7 @@ export interface Room {
   id: string
   name: string
   is_saved: boolean
+  is_public: boolean
   created_at: string
   last_activity: string
   creator_id?: string
@@ -52,6 +53,8 @@ export interface BaseShape {
   y: number
   userId?: string
   color?: string
+  createdByUsername?: string
+  createdByColor?: string
 }
 
 export interface Rectangle extends BaseShape {
@@ -102,6 +105,7 @@ export interface ConnectedUser {
   userId: string
   username: string
   color: string
+  canEdit: boolean
 }
 
 // WebSocket Message Types
@@ -171,6 +175,7 @@ export interface RegisterData {
 
 export interface AuthToken {
   access_token: string
+  refresh_token: string
   token_type: string
 }
 

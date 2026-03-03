@@ -4,7 +4,7 @@ Stores user accounts for room ownership and authentication
 """
 from sqlalchemy import String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, TYPE_CHECKING
 import uuid
 
@@ -51,7 +51,7 @@ class User(Base):
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
         nullable=False
     )
     
@@ -60,20 +60,22 @@ class User(Base):
         nullable=True
     )
     
-    # Relationships
+# Relationships — lazy="select" (load only when accessed, not on every
+    # User load).  Previously "selectin" caused every auth check to eagerly
+    # pull ALL rooms and ALL permissions for the user.
     created_rooms: Mapped[List["Room"]] = relationship(
         "Room",
         back_populates="creator",
         foreign_keys="Room.creator_id",
-        lazy="selectin"
+        lazy="select"
     )
-    
+
     permissions: Mapped[List["RoomPermission"]] = relationship(
         "RoomPermission",
         back_populates="user",
         foreign_keys="RoomPermission.user_id",
         cascade="all, delete-orphan",
-        lazy="selectin"
+        lazy="select"
     )
     
     def __repr__(self) -> str:

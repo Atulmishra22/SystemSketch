@@ -4,18 +4,35 @@ https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html
 """
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import StaticPool
 from typing import AsyncGenerator
 
 from app.config import settings
 
 
+def _build_engine():
+    """Build the async engine with settings appropriate for the database backend."""
+    if settings.is_sqlite:
+        # SQLite: use StaticPool so the same in-memory/file connection is reused
+        # across async tasks; check_same_thread=False is required by SQLite driver.
+        return create_async_engine(
+            settings.db_url,
+            echo=settings.DEBUG,
+            future=True,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    # PostgreSQL (and other networked databases)
+    return create_async_engine(
+        settings.db_url,
+        echo=settings.DEBUG,
+        future=True,
+        pool_pre_ping=True,
+    )
+
+
 # Create async engine
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    future=True,
-    pool_pre_ping=True,
-)
+engine = _build_engine()
 
 # Create async session factory
 AsyncSessionLocal = async_sessionmaker(

@@ -11,6 +11,7 @@ from app.models.permission import PermissionLevel
 class RoomCreate(BaseModel):
     """Schema for creating a new room"""
     name: str = Field(..., min_length=1, max_length=255, description="Room name")
+    is_public: bool = Field(default=True, description="True = discoverable by anyone; False = private (invite-only)")
 
 
 class RoomResponse(BaseModel):
@@ -18,6 +19,7 @@ class RoomResponse(BaseModel):
     id: str
     name: str
     is_saved: bool
+    is_public: bool = True
     created_at: datetime
     last_activity: datetime
     creator_id: Optional[str] = None
@@ -42,6 +44,16 @@ class RoomState(BaseModel):
 class RoomSaveRequest(BaseModel):
     """Schema for saving room state"""
     shapes: List[Dict] = Field(..., description="Array of shapes to save")
+
+
+class RoomUpdate(BaseModel):
+    """Schema for renaming/updating a room"""
+    name: str = Field(..., min_length=1, max_length=255, description="New room name")
+
+
+class RoomVisibilityUpdate(BaseModel):
+    """Schema for toggling room public/private visibility"""
+    is_public: bool = Field(..., description="True = public, False = private")
 
 
 class RoomListResponse(BaseModel):

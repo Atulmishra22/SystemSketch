@@ -16,20 +16,20 @@ class ConnectionManager:
     - Broadcasts messages to room participants
     """
     
-    # Distinct color palette for user differentiation (from ColorBrewer)
+    # Distinct color palette — kept well away from brand brick #C0431F
     USER_COLORS = [
-        "#e41a1c",  # Red
-        "#377eb8",  # Blue
-        "#4daf4a",  # Green
-        "#984ea3",  # Purple
-        "#ff7f00",  # Orange
-        "#ffff33",  # Yellow
-        "#a65628",  # Brown
-        "#f781bf",  # Pink
-        "#2D5BFF",  # Cobalt (brand color)
-        "#D1FF1A",  # Acid Lime (brand color)
-        "#00CED1",  # Turquoise
-        "#FF69B4",  # Hot Pink
+        "#2563EB",  # Blue
+        "#16A34A",  # Green
+        "#7C3AED",  # Violet
+        "#0891B2",  # Cyan
+        "#D97706",  # Amber
+        "#DB2777",  # Pink
+        "#059669",  # Emerald
+        "#9333EA",  # Purple
+        "#EA580C",  # Orange (distinct from brick)
+        "#0284C7",  # Sky
+        "#65A30D",  # Lime
+        "#BE185D",  # Rose
     ]
     
     def __init__(self):
@@ -61,7 +61,8 @@ class ConnectionManager:
         self,
         room_id: str,
         websocket: WebSocket,
-        username: str = None
+        username: str = None,
+        can_edit: bool = False
     ) -> tuple[str, str]:
         """
         Accept a WebSocket connection and assign user ID and color
@@ -80,12 +81,12 @@ class ConnectionManager:
         if not username:
             username = f"User-{user_id}"
         
-        # Add to active connections
+        # Add to active connections (5-tuple: ws, user_id, username, color, can_edit)
         if room_id not in self.active_connections:
             self.active_connections[room_id] = []
         
         self.active_connections[room_id].append(
-            (websocket, user_id, username, color)
+            (websocket, user_id, username, color, can_edit)
         )
         
         return user_id, color
@@ -97,7 +98,7 @@ class ConnectionManager:
         """
         if room_id in self.active_connections:
             for conn in self.active_connections[room_id]:
-                ws, user_id, username, color = conn
+                ws, user_id, username, color, can_edit = conn
                 if ws == websocket:
                     self.active_connections[room_id].remove(conn)
                     
@@ -114,6 +115,10 @@ class ConnectionManager:
                         del self.active_connections[room_id]
                         if room_id in self.room_colors:
                             del self.room_colors[room_id]
+                        # Release the orphaned asyncio lock in state_manager so it can be GC'd
+                        from app.core.state_manager import room_state_manager
+                        if room_id in room_state_manager.locks:
+                            del room_state_manager.locks[room_id]
                     
                     return user_id, color
         
@@ -135,7 +140,7 @@ class ConnectionManager:
         # Create a copy to avoid modification during iteration
         connections = self.active_connections[room_id].copy()
         
-        for websocket, user_id, username, color in connections:
+        for websocket, user_id, username, color, can_edit in connections:
             if websocket != exclude_ws:
                 try:
                     await websocket.send_text(message)
@@ -164,9 +169,10 @@ class ConnectionManager:
             {
                 "userId": user_id,
                 "username": username,
-                "color": color
+                "color": color,
+                "canEdit": can_edit,
             }
-            for _, user_id, username, color in self.active_connections[room_id]
+            for _, user_id, username, color, can_edit in self.active_connections[room_id]
         ]
     
     def get_connection_count(self, room_id: str) -> int:

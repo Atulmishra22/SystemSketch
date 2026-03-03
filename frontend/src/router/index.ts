@@ -36,9 +36,9 @@ const router = createRouter({
 })
 
 // Navigation guards
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, from) => {
   const authStore = useAuthStore()
-  
+
   // Check authentication status on first navigation
   if (!authStore.user && !authStore.loading) {
     await authStore.checkAuth()
@@ -46,11 +46,8 @@ router.beforeEach(async (to, from, next) => {
 
   // Redirect authenticated users away from login/register
   if (to.meta.requiresGuest && authStore.isAuthenticated) {
-    next({ name: 'rooms' })
-    return
+    return { name: 'rooms' }
   }
-
-  next()
 })
 
 export default router

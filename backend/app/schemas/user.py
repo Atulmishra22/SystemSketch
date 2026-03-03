@@ -76,8 +76,14 @@ class UserUpdate(BaseModel):
 class Token(BaseModel):
     """Schema for JWT token response"""
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class RefreshTokenRequest(BaseModel):
+    """Schema for refresh-token exchange request"""
+    refresh_token: str
 
 
 class TokenData(BaseModel):

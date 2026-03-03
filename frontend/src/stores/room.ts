@@ -21,18 +21,21 @@ export const useRoomStore = defineStore('room', () => {
   const isRoomOwner = computed(() => currentRoom.value?.is_owner || false)
   const userPermission = computed(() => currentRoom.value?.user_permission || null)
   const canEdit = computed(() => {
-    if (!currentRoom.value?.user_permission) return currentRoom.value?.permission_level === 'public'
+    if (!currentRoom.value?.user_permission) {
+      // Fall back to the room's public flag (pre-WS-handshake or anonymous user)
+      return currentRoom.value?.is_public === true
+    }
     return currentRoom.value.user_permission === PermissionLevel.OWNER || 
            currentRoom.value.user_permission === PermissionLevel.EDITOR
   })
 
   // Actions
-  async function createRoom(name: string): Promise<Room> {
+  async function createRoom(name: string, isPublic = true): Promise<Room> {
     loading.value = true
     error.value = null
 
     try {
-      const room = await api.createRoom(name)
+      const room = await api.createRoom(name, isPublic)
       currentRoom.value = room
       
       // Add to myRooms if not already there
@@ -49,32 +52,42 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
-  async function loadRoom(roomId: string): Promise<void> {
+  async function loadRoom(roomId: string): Promise<import('@/types').Shape[]> {
     loading.value = true
     error.value = null
 
     try {
-      const roomData = await api.getRoom(roomId)
-      
-      // Get room metadata from list if available
-      const existingRoom = myRooms.value.find(r => r.id === roomId) || 
-                          publicRooms.value.find(r => r.id === roomId)
-      
-      if (existingRoom) {
-        currentRoom.value = existingRoom
-      } else {
-        // Create minimal room object
-        currentRoom.value = {
-          id: roomData.id,
-          name: roomData.name,
-          is_saved: true,
-          created_at: new Date().toISOString(),
-          last_activity: new Date().toISOString(),
-          permission_level: 'public',
-        }
+      // Fetch canvas state and permission info in parallel
+      const [roomData, accessInfo] = await Promise.all([
+        api.getRoom(roomId),
+        api.checkRoomAccess(roomId).catch(() => null),
+      ])
+
+      // Start with metadata from the already-loaded list if available
+      const existingRoom = myRooms.value.find(r => r.id === roomId) ||
+                           publicRooms.value.find(r => r.id === roomId)
+
+      const base = existingRoom ?? {
+        id: roomData.id,
+        name: roomData.name,
+        is_saved: true,
+        created_at: new Date().toISOString(),
+        last_activity: new Date().toISOString(),
+        permission_level: 'public',
       }
-    } catch (err: any) {
-      error.value = err.response?.data?.detail || 'Failed to load room'
+
+      // Always apply the authoritative permission data from the check endpoint
+      currentRoom.value = {
+        ...base,
+        is_owner: accessInfo?.is_owner ?? existingRoom?.is_owner ?? false,
+        user_permission: accessInfo?.permission ?? existingRoom?.user_permission,
+      }
+
+      // Return the shapes so callers don't need a second api.getRoom() call
+      return (roomData.shapes || []) as import('@/types').Shape[]
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } }
+      error.value = e?.response?.data?.detail || 'Failed to load room'
       throw err
     } finally {
       loading.value = false
@@ -125,6 +138,40 @@ export const useRoomStore = defineStore('room', () => {
       throw err
     } finally {
       loading.value = false
+    }
+  }
+
+  async function renameRoom(roomId: string, name: string): Promise<void> {
+    try {
+      const updated = await api.renameRoom(roomId, name)
+      // Patch name in both lists
+      const patch = (list: Room[]) => {
+        const idx = list.findIndex(r => r.id === roomId)
+        if (idx !== -1) list[idx] = { ...list[idx], name: updated.name }
+      }
+      patch(myRooms.value)
+      patch(publicRooms.value)
+      if (currentRoom.value?.id === roomId) currentRoom.value = { ...currentRoom.value, name: updated.name }
+    } catch (err: any) {
+      error.value = err.response?.data?.detail || 'Failed to rename room'
+      throw err
+    }
+  }
+
+  async function toggleVisibility(roomId: string, isPublic: boolean): Promise<void> {
+    try {
+      const updated = await api.toggleRoomVisibility(roomId, isPublic)
+      const patch = (list: Room[]) => {
+        const idx = list.findIndex(r => r.id === roomId)
+        if (idx !== -1) list[idx] = { ...list[idx], is_public: updated.is_public }
+      }
+      patch(myRooms.value)
+      patch(publicRooms.value)
+      if (currentRoom.value?.id === roomId)
+        currentRoom.value = { ...currentRoom.value, is_public: updated.is_public }
+    } catch (err: any) {
+      error.value = err.response?.data?.detail || 'Failed to update visibility'
+      throw err
     }
   }
 
@@ -191,6 +238,8 @@ export const useRoomStore = defineStore('room', () => {
     loadRoom,
     saveRoom,
     deleteRoom,
+    renameRoom,
+    toggleVisibility,
     loadMyRooms,
     loadPublicRooms,
     inviteUser,

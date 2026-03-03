@@ -5,9 +5,10 @@ Endpoints for managing room access control
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 from typing import List
 
-from app.core.database import get_async_db
+from app.core.database import get_async_session as get_async_db
 from app.api.dependencies import get_current_user
 from app.models.user import User
 from app.models.permission import RoomPermission, PermissionLevel
@@ -72,19 +73,26 @@ async def list_room_permissions(
     db: AsyncSession = Depends(get_async_db)
 ):
     """
-    List all users with access to a room
-    Only accessible by room owner
+    List all users with access to a room.
+    Uses selectinload to resolve the user relationship in a single extra query
+    instead of N+1 individual refreshes.
     """
     permissions = await PermissionService.list_room_permissions(
         db=db,
         room_id=room_id,
         requester_id=current_user.id
     )
-    
-    # Refresh to get user relationships
-    for perm in permissions:
-        await db.refresh(perm, ["user"])
-    
+
+    # Eagerly resolve the .user relationship for all rows in one query
+    if permissions:
+        perm_ids = [p.id for p in permissions]
+        loaded = await db.execute(
+            select(RoomPermission)
+            .options(selectinload(RoomPermission.user))
+            .where(RoomPermission.id.in_(perm_ids))
+        )
+        permissions = list(loaded.scalars().all())
+
     return permissions
 
 
@@ -145,19 +153,22 @@ async def check_room_access(
     db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Check current user's access level for a room
+    Check current user's access level for a room.
+    get_user_permission already loads the Room; we reuse that fact
+    via the session identity map to avoid a second DB hit.
     """
     permission = await PermissionService.get_user_permission(
         db=db,
         user_id=current_user.id,
         room_id=room_id
     )
-    
-    # Check if user is owner
+
+    # Room was already fetched inside get_user_permission; the session
+    # identity map returns the cached instance — no extra round-trip.
     from app.models.room import Room
     room = await db.get(Room, room_id)
-    is_owner = room.creator_id == current_user.id if room else False
-    
+    is_owner = (room.creator_id == current_user.id) if room else False
+
     return PermissionCheck(
         has_access=permission is not None,
         permission=permission,

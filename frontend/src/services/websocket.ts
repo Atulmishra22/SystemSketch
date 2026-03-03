@@ -1,6 +1,7 @@
 /**
  * WebSocket Service - Real-time Collaboration
  */
+import { ref } from 'vue'
 import type { WSMessage, WSAction, Shape, ConnectedUser, CursorPosition } from '@/types'
 
 type MessageHandler = (message: WSMessage) => void
@@ -13,6 +14,9 @@ export class WebSocketService {
   private reconnectDelay = 1000
   private messageHandlers: Map<WSAction | 'all', Set<MessageHandler>> = new Map()
   private isIntentionallyClosed = false
+
+  /** Reactive connection state — import and watch this directly in stores/components */
+  readonly connected = ref(false)
 
   connect(roomId: string, token?: string, username?: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -34,6 +38,7 @@ export class WebSocketService {
         this.ws.onopen = () => {
           console.log(`✅ WebSocket connected to room: ${roomId}`)
           this.reconnectAttempts = 0
+          this.connected.value = true
           resolve()
         }
 
@@ -54,6 +59,7 @@ export class WebSocketService {
         this.ws.onclose = (event) => {
           console.log('WebSocket closed:', event.code, event.reason)
           this.ws = null
+          this.connected.value = false
 
           // Attempt reconnection if not intentionally closed
           if (!this.isIntentionallyClosed && this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -62,7 +68,10 @@ export class WebSocketService {
             
             setTimeout(() => {
               if (this.roomId && !this.isIntentionallyClosed) {
-                this.connect(this.roomId, token, username)
+                // Always read the freshest access token — it may have been
+                // rotated by the proactive refresh timer since the last connect.
+                const freshToken = localStorage.getItem('access_token') || token
+                this.connect(this.roomId, freshToken || undefined, username)
               }
             }, this.reconnectDelay * this.reconnectAttempts)
           }
@@ -123,6 +132,10 @@ export class WebSocketService {
   // Convenience methods
   drawShape(shape: Shape): void {
     this.send({ action: 'draw' as WSAction, shape })
+  }
+
+  moveShape(shapeId: string, updates: Record<string, any>): void {
+    this.send({ action: 'move_shape' as WSAction, shapeId, updates })
   }
 
   moveCursor(x: number, y: number, userId: string): void {

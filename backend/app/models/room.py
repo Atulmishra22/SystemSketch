@@ -4,7 +4,7 @@ Stores room metadata and canvas state
 """
 from sqlalchemy import String, Boolean, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING, List
 import uuid
 
@@ -44,18 +44,27 @@ class Room(Base):
         default=False,
         nullable=False
     )
+
+    # Visibility: True = anyone can discover & view; False = invite-only (owner + explicit permissions only)
+    is_public: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        index=True
+    )
     
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
-        nullable=False
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True
     )
     
     last_activity: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
         index=True
     )

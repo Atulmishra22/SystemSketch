@@ -4,7 +4,7 @@ Defines permission levels and user-room access control
 """
 from sqlalchemy import String, Enum as SQLEnum, ForeignKey, DateTime, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 import enum
 import uuid
@@ -64,7 +64,7 @@ class RoomPermission(Base):
     # Timestamps
     granted_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc),
         nullable=False
     )
     

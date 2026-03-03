@@ -93,6 +93,28 @@ class RoomStateManager:
             
             # Add shape
             self.rooms[room_id]["shapes"].append(shape)
+
+    async def move_shape(self, room_id: str, shape_id: str, updates: Dict) -> bool:
+        """
+        Update position (and any other fields) of an existing shape by id.
+        Saves to history so the move can be undone.
+        Returns True if the shape was found and updated.
+        """
+        async with self._get_lock(room_id):
+            self._initialize_room(room_id)
+            shapes = self.rooms[room_id]["shapes"]
+            for i, s in enumerate(shapes):
+                if s.get("id") == shape_id:
+                    # Snapshot before mutating
+                    current_state = deepcopy(shapes)
+                    self.rooms[room_id]["history"].append(current_state)
+                    if len(self.rooms[room_id]["history"]) > self.MAX_HISTORY_DEPTH:
+                        self.rooms[room_id]["history"].pop(0)
+                    self.rooms[room_id]["redo_stack"] = []
+                    # Merge updates into the existing shape dict
+                    shapes[i] = {**s, **updates}
+                    return True
+            return False
     
     async def clear_state(self, room_id: str) -> None:
         """Clear all shapes (save to history)"""

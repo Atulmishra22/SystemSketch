@@ -4,8 +4,10 @@ Business logic for room access control and permission management
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
+from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from fastapi import HTTPException, status
+from datetime import datetime, timezone
 
 from app.models.permission import RoomPermission, PermissionLevel
 from app.models.room import Room
@@ -53,8 +55,8 @@ class PermissionService:
         permission = result.scalar_one_or_none()
         
         if not permission:
-            # Check if room is public
-            return room.permission_level == "public"
+            # Check if room is public (open access)
+            return room.is_public
             
         # Check permission hierarchy: OWNER > EDITOR > VIEWER
         permission_hierarchy = {
@@ -99,7 +101,7 @@ class PermissionService:
             return permission.permission
             
         # Check if room is public (viewer access)
-        if room.permission_level == "public":
+        if room.is_public:
             return PermissionLevel.VIEWER
             
         return None
@@ -266,21 +268,21 @@ class PermissionService:
         user_id: str
     ) -> List[Room]:
         """
-        Get all rooms accessible by a user (owned + shared)
+        Get all rooms accessible by a user (owned + shared with explicit permission)
+        Single query using OR condition — no Python-side dedup needed.
         """
-        # Get rooms where user is creator
-        stmt_owned = select(Room).where(Room.creator_id == user_id)
-        result_owned = await db.execute(stmt_owned)
-        owned_rooms = list(result_owned.scalars().all())
-        
-        # Get rooms where user has explicit permissions
-        stmt_perms = select(Room).join(
-            RoomPermission,
-            Room.id == RoomPermission.room_id
-        ).where(RoomPermission.user_id == user_id)
-        result_perms = await db.execute(stmt_perms)
-        shared_rooms = list(result_perms.scalars().all())
-        
-        # Combine and deduplicate
-        all_rooms = {room.id: room for room in owned_rooms + shared_rooms}
-        return list(all_rooms.values())
+        stmt = (
+            select(Room)
+            .where(
+                or_(
+                    Room.creator_id == user_id,
+                    Room.id.in_(
+                        select(RoomPermission.room_id).where(
+                            RoomPermission.user_id == user_id
+                        )
+                    )
+                )
+            )
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())

@@ -17,6 +17,7 @@ from app.schemas.websocket import (
     UserJoined,
     UserLeft,
     SyncState,
+    RoomUsers,
     ErrorMessage
 )
 
@@ -77,7 +78,7 @@ async def websocket_endpoint(
         async with AsyncSessionLocal() as session:
             from app.models.room import Room
             room = await session.get(Room, room_id)
-            if room and room.permission_level == "public":
+            if room and room.is_public:
                 user_permission = PermissionLevel.VIEWER  # Anonymous users are viewers
     
     # Reject connection if no access
@@ -99,7 +100,9 @@ async def websocket_endpoint(
     final_username = authenticated_username or username or None
     
     # Accept connection and get user info
-    user_id, color = await connection_manager.connect(room_id, websocket, final_username)
+    user_id, color = await connection_manager.connect(
+        room_id, websocket, final_username, can_edit
+    )
     
     try:
         # Send current room state to newly connected user
@@ -113,13 +116,34 @@ async def websocket_endpoint(
             websocket,
             sync_message.model_dump_json()
         )
+
+        # Send full list of already-connected users to the new joiner
+        # (excludes the joiner themselves since they were just added)
+        existing_users = [
+            u for u in connection_manager.get_room_users(room_id)
+            if u["userId"] != user_id
+        ]
+        room_users_message = RoomUsers(
+            action="room_users",
+            users=existing_users,
+            myUserId=user_id,
+            myColor=color,
+            myUsername=final_username or f"User-{user_id}",
+            canEdit=can_edit
+        )
+        await connection_manager.send_personal(
+            room_id,
+            websocket,
+            room_users_message.model_dump_json()
+        )
         
-        # Broadcast user joined to others in the room
+        # Broadcast user joined to others in the room (use final_username, never None)
         join_message = UserJoined(
             action="user_joined",
             userId=user_id,
-            username=username,
-            color=color
+            username=final_username or f"User-{user_id}",
+            color=color,
+            canEdit=can_edit
         )
         await connection_manager.broadcast(
             room_id,
@@ -159,12 +183,33 @@ async def websocket_endpoint(
                         data,
                         exclude_ws=websocket
                     )
+
+            elif action == "move_shape":
+                if not can_edit:
+                    error_message = ErrorMessage(
+                        action="error",
+                        message="You don't have permission to edit this room (view-only access)",
+                        code="PERMISSION_DENIED"
+                    )
+                    await connection_manager.send_personal(
+                        room_id, websocket, error_message.model_dump_json()
+                    )
+                    continue
+
+                shape_id = message.get("shapeId")
+                updates = message.get("updates")
+                if shape_id and updates:
+                    await room_state_manager.move_shape(room_id, shape_id, updates)
+                    await connection_manager.broadcast(
+                        room_id, data, exclude_ws=websocket
+                    )
             
             elif action == "cursor":
-                # Broadcast cursor position (no permission check, everyone can show cursor)
+                # Broadcast cursor position — overwrite userId with server-authoritative value
+                cursor_msg = {**message, "userId": user_id}
                 await connection_manager.broadcast(
                     room_id,
-                    data,
+                    json.dumps(cursor_msg),
                     exclude_ws=websocket
                 )
             
@@ -183,11 +228,13 @@ async def websocket_endpoint(
                     )
                     continue
                 
-                # Clear canvas for everyone
+                # Clear canvas; the sender handles its own local reset,
+                # broadcast only to others (consistent with draw / move_shape)
                 await room_state_manager.clear_state(room_id)
                 await connection_manager.broadcast(
                     room_id,
-                    data
+                    data,
+                    exclude_ws=websocket
                 )
             
             elif action == "undo":
@@ -273,11 +320,24 @@ async def websocket_endpoint(
             )
     
     except Exception as e:
-        # Unexpected error - log and disconnect
+        # Unexpected error — log, clean up the connection and notify remaining users
         print(f"WebSocket error in room {room_id}: {e}")
-        connection_manager.disconnect(room_id, websocket)
-        
-        # Try to send error message to client
+        disconnected_user_id, _ = connection_manager.disconnect(room_id, websocket)
+
+        if disconnected_user_id:
+            try:
+                leave_message = UserLeft(
+                    action="user_left",
+                    userId=disconnected_user_id
+                )
+                await connection_manager.broadcast(
+                    room_id,
+                    leave_message.model_dump_json()
+                )
+            except Exception:
+                pass
+
+        # Try to inform the client before the socket dies
         try:
             error_message = ErrorMessage(
                 action="error",
@@ -285,5 +345,5 @@ async def websocket_endpoint(
                 code="SERVER_ERROR"
             )
             await websocket.send_text(error_message.model_dump_json())
-        except:
+        except Exception:
             pass  # Connection already closed

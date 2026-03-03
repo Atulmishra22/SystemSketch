@@ -42,12 +42,23 @@ class UserJoined(BaseModel):
     userId: str
     username: str
     color: str
+    canEdit: bool = False
 
 
 class UserLeft(BaseModel):
     """Notification when user leaves room"""
     action: Literal["user_left"] = "user_left"
     userId: str
+
+
+class RoomUsers(BaseModel):
+    """Full list of connected users sent to a newly joined user"""
+    action: Literal["room_users"] = "room_users"
+    users: list[Dict[str, Any]]  # [{userId, username, color, canEdit}]
+    myUserId: str
+    myColor: str
+    myUsername: str
+    canEdit: bool
 
 
 class SyncState(BaseModel):

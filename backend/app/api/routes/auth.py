@@ -5,15 +5,17 @@ Handles user registration, login, and profile management
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.database import get_async_session
 from app.models.user import User
-from app.schemas.user import UserCreate, UserLogin, UserResponse, Token
+from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, RefreshTokenRequest
 from app.services.auth_service import (
     hash_password,
     verify_password,
-    create_access_token
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
 )
 from app.api.dependencies import get_current_user
 from app.config import settings
@@ -63,20 +65,24 @@ async def register(
         username=user_data.username,
         email=user_data.email,
         hashed_password=hash_password(user_data.password),
-        last_login=datetime.utcnow()
+        last_login=datetime.now(timezone.utc)
     )
     
     session.add(new_user)
     await session.commit()
     await session.refresh(new_user)
     
-    # Create access token
+    # Create access + refresh tokens
     access_token = create_access_token(
+        data={"sub": new_user.id, "username": new_user.username}
+    )
+    refresh_token = create_refresh_token(
         data={"sub": new_user.id, "username": new_user.username}
     )
     
     return Token(
         access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
         user=UserResponse.model_validate(new_user)
     )
@@ -121,17 +127,21 @@ async def login(
         )
     
     # Update last login time
-    user.last_login = datetime.utcnow()
+    user.last_login = datetime.now(timezone.utc)
     await session.commit()
     await session.refresh(user)
     
-    # Create access token
+    # Create access + refresh tokens
     access_token = create_access_token(
+        data={"sub": user.id, "username": user.username}
+    )
+    refresh_token = create_refresh_token(
         data={"sub": user.id, "username": user.username}
     )
     
     return Token(
         access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
         user=UserResponse.model_validate(user)
     )
@@ -150,23 +160,38 @@ async def get_current_user_profile(
     return UserResponse.model_validate(current_user)
 
 
-@router.get("/refresh", response_model=Token)
+@router.post("/refresh", response_model=Token)
 async def refresh_token(
-    current_user: User = Depends(get_current_user)
+    body: RefreshTokenRequest,
+    session: AsyncSession = Depends(get_async_session)
 ):
     """
-    Refresh JWT token
-    
-    - Requires valid JWT token
-    - Returns new token with extended expiration
+    Exchange a valid refresh token for a new access + refresh token pair.
+    The old refresh token is consumed and a fresh one is issued (rotation).
+    No Authorization header required — the caller may have an expired access token.
     """
-    # Create new access token
-    access_token = create_access_token(
-        data={"sub": current_user.id, "username": current_user.username}
-    )
-    
+    token_data = decode_refresh_token(body.refresh_token)
+    if not token_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = await session.get(User, token_data.user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User no longer exists",
+        )
+
+    # Issue a fresh pair (token rotation — limits refresh token reuse window)
+    new_access = create_access_token(data={"sub": user.id, "username": user.username})
+    new_refresh = create_refresh_token(data={"sub": user.id, "username": user.username})
+
     return Token(
-        access_token=access_token,
+        access_token=new_access,
+        refresh_token=new_refresh,
         token_type="bearer",
-        user=UserResponse.model_validate(current_user)
+        user=UserResponse.model_validate(user)
     )
